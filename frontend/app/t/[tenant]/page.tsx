@@ -5,15 +5,8 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
 import { getTenantConfig } from '@/lib/tenants';
 import { AuthModal } from '@/components/auth/AuthModal';
-// Fix: Usamos el cliente directo de supabase-js
-import { createClient } from '@supabase/supabase-js';
+import { createClient } from '@/lib/supabase/client';
 import { Wrench, ShieldCheck, Zap, Battery, MapPin, Phone, LogIn, LayoutDashboard, ShoppingBag, LogOut } from 'lucide-react';
-
-// Inicialización del cliente Supabase (Singleton)
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
-);
 
 export default function TenantLandingPage({ params }: { params: { tenant: string } }) {
   const tenant = getTenantConfig(params.tenant);
@@ -21,6 +14,7 @@ export default function TenantLandingPage({ params }: { params: { tenant: string
   const [user, setUser] = useState<any>(null);
   const [role, setRole] = useState<string | null>(null);
   const router = useRouter();
+  const supabase = createClient();
 
   // Verificar Auth y Rol al cargar
   useEffect(() => {
@@ -29,8 +23,6 @@ export default function TenantLandingPage({ params }: { params: { tenant: string
       if (user) {
         setUser(user);
         // Consultar rol en este tenant
-        // Nota: tenant_id debe coincidir con el del slug. 
-        // Para MVP hacemos una consulta JOIN.
         const { data: membership } = await supabase
           .from('tenant_memberships')
           .select('role, tenants!inner(slug)')
@@ -44,7 +36,7 @@ export default function TenantLandingPage({ params }: { params: { tenant: string
       }
     };
     checkSession();
-  }, [params.tenant]);
+  }, [params.tenant, supabase]);
 
   const handleLogout = async () => {
       await supabase.auth.signOut();

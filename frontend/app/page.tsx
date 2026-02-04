@@ -3,19 +3,13 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/Button';
 import { AuthModal } from '@/components/auth/AuthModal';
-import { Settings, Users, PenTool, BarChart3, LogIn } from 'lucide-react';
-// Fix: Usamos el cliente directo de supabase-js para evitar errores de exportación en auth-helpers
-import { createClient } from '@supabase/supabase-js';
-
-// Inicialización del cliente Supabase (Singleton)
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
-);
+import { Users, PenTool, Settings, BarChart3, LogIn } from 'lucide-react';
+import { createClient } from '@/lib/supabase/client';
 
 export default function GlobalLandingPage() {
   const [isAuthOpen, setAuthOpen] = useState(false);
   const [user, setUser] = useState<any>(null);
+  const supabase = createClient();
 
   // Verificar sesión al montar para ajustar UI
   useEffect(() => {
@@ -24,7 +18,7 @@ export default function GlobalLandingPage() {
       setUser(data.user);
     };
     checkUser();
-  }, []);
+  }, [supabase]);
 
   return (
     <div className="min-h-screen flex flex-col">

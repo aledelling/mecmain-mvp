@@ -1,83 +1,98 @@
-import { NextRequest, NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
+import { createServerClient, type CookieOptions } from "@supabase/ssr";
 
 export const config = {
   matcher: [
-    /*
-     * Match all paths except for:
-     * 1. /api routes
-     * 2. /_next (Next.js internals)
-     * 3. /_static (inside /public)
-     * 4. all root files inside /public (e.g. /favicon.ico)
-     */
     "/((?!api/|_next/|_static/|[\\w-]+\\.\\w+).*)",
   ],
 };
 
-export default async function middleware(req: NextRequest) {
-  const url = req.nextUrl;
-  const hostname = req.headers.get("host")!; 
+export default async function middleware(request: NextRequest) {
+  // 1. Configuración inicial de respuesta
+  let response = NextResponse.next({
+    request: {
+      headers: request.headers,
+    },
+  });
 
-  // Dominios que deben tratarse como la "Landing Global" (No tenants)
-  // Incluimos 'vercel.app' para que 'mi-proyecto.vercel.app' sea el root.
+  // 2. Gestión de Sesión Supabase (Auth Refresh)
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get(name: string) {
+          return request.cookies.get(name)?.value;
+        },
+        set(name: string, value: string, options: CookieOptions) {
+          // Actualizamos cookies en la request y en la response
+          request.cookies.set({ name, value, ...options });
+          response = NextResponse.next({
+            request: {
+              headers: request.headers,
+            },
+          });
+          response.cookies.set({ name, value, ...options });
+        },
+        remove(name: string, options: CookieOptions) {
+          request.cookies.set({ name, value: "", ...options });
+          response = NextResponse.next({
+            request: {
+              headers: request.headers,
+            },
+          });
+          response.cookies.set({ name, value: "", ...options });
+        },
+      },
+    }
+  );
+
+  // Refrescamos la sesión si ha expirado
+  await supabase.auth.getUser();
+
+  // 3. Lógica Multitenant (Host/Path)
+  const url = request.nextUrl;
+  const hostname = request.headers.get("host")!;
+
   const isVercelDomain = hostname.endsWith(".vercel.app");
   const isLocalhost = hostname.includes("localhost");
   const isMainProductionDomain = hostname === "mecmain.com" || hostname === "www.mecmain.com";
 
-  // Determinamos si es una petición a un subdominio de tenant real
-  // Lógica: No es localhost, no es el dominio principal prod, y (si es vercel) no es el dominio raíz del despliegue.
-  // Nota: Para MVP en Vercel, asumimos que NO usamos subdominios reales todavía, 
-  // confiamos en el modo PATH (/t/slug).
-  // Si quisieras subdominios reales en Vercel, necesitarías configurar wildcards.
-  
   let subdomain = null;
-  
+
   if (!isLocalhost && !isMainProductionDomain) {
-      // Caso simple: Si tienes un dominio propio "talleres.com" y entra "moto.talleres.com"
-      const parts = hostname.split('.');
-      if (parts.length > 2 && !isVercelDomain) {
-          subdomain = parts[0]; 
-      }
-      // Caso Vercel: Si configuras "moto-app.vercel.app" vs "mecmain-saas.vercel.app", 
-      // es difícil distinguir automáticamente cuál es tenant y cuál es app sin una lista blanca.
-      // Para este MVP, DESACTIVAMOS la detección automática de subdominio en Vercel 
-      // para evitar romper la landing global. Usaremos /t/slug estrictamente.
-  }
-
-  // --- REWRITE PARA SUBDOMINIO (Target PROD futuro) ---
-  if (subdomain) {
-    return NextResponse.rewrite(
-      new URL(`/app/${subdomain}${url.pathname}`, req.url)
-    );
-  }
-
-  // --- REWRITE PARA PATH FALLBACK (Modo actual MVP) ---
-  // Permite acceder a /t/motoridersco/dashboard y que internamente Next.js renderice /app/[tenant]/dashboard
-  if (url.pathname.startsWith("/t/")) {
-    const segments = url.pathname.split("/");
-    // segments[0] = empty, segments[1] = 't', segments[2] = tenantSlug
-    const tenantSlug = segments[2];
-    
-    if (tenantSlug) {
-        // Cortamos /t/slug de la URL para pasársela al router interno
-        // Ejemplo: /t/motoridersco/store -> /app/motoridersco/store
-        // Ejemplo: /t/motoridersco -> /t/motoridersco (Landing del tenant)
-        
-        // Excepción: La landing page del tenant vive en /app/t/[tenant]/page.tsx ? 
-        // No, en nuestra estructura actual de archivos:
-        // Landing Tenant: frontend/app/t/[tenant]/page.tsx
-        // App Dashboard: frontend/app/app/[tenant]/...
-        
-        // El middleware actual NO necesita reescribir /t/..., porque Next.js App Router 
-        // ya maneja rutas dinámicas en carpetas.
-        // /app/t/[tenant]/page.tsx mapea a /t/motoridersco automáticamente.
-        
-        // SIN EMBARGO, si queremos soportar urls limpias futuras, mantenemos la lógica simple.
-        // Por ahora, dejamos pasar la request tal cual, ya que la estructura de carpetas
-        // coincide con la URL pública para el modo PATH.
-        
-        return NextResponse.next();
+    const parts = hostname.split('.');
+    if (parts.length > 2 && !isVercelDomain) {
+      subdomain = parts[0];
     }
   }
 
-  return NextResponse.next();
+  // --- Caso A: Rewrite por Subdominio ---
+  if (subdomain) {
+    // Reescribimos la URL
+    const rewriteUrl = new URL(`/app/${subdomain}${url.pathname}`, request.url);
+    const rewriteResponse = NextResponse.rewrite(rewriteUrl);
+    
+    // IMPORTANTE: Copiar las cookies de sesión (set-cookie) de la respuesta de Supabase
+    // a la respuesta final del rewrite para no perder la sesión.
+    const setCookie = response.headers.get('set-cookie');
+    if (setCookie) {
+      rewriteResponse.headers.set('set-cookie', setCookie);
+    }
+    return rewriteResponse;
+  }
+
+  // --- Caso B: Path Fallback (/t/slug) ---
+  if (url.pathname.startsWith("/t/")) {
+    const segments = url.pathname.split("/");
+    const tenantSlug = segments[2];
+    if (tenantSlug) {
+      // Dejamos pasar la request (Next.js maneja la ruta dinámica)
+      // Pero devolvemos la respuesta 'response' que ya trae las cookies actualizadas de Supabase
+      return response;
+    }
+  }
+
+  // Si no hubo rewrite, devolvemos la respuesta original con las cookies refrescadas
+  return response;
 }

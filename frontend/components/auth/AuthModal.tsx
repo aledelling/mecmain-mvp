@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
-// Fix: Usamos el cliente directo de supabase-js
-import { createClient } from '@supabase/supabase-js';
+import { createClient } from '@/lib/supabase/client';
 import { Modal } from '@/components/ui/Modal';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
@@ -13,14 +12,9 @@ interface AuthModalProps {
   defaultTenantSlug?: string; // Si venimos desde un tenant específico
 }
 
-// Inicialización del cliente Supabase (Singleton)
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
-);
-
 export function AuthModal({ isOpen, onClose, defaultTenantSlug }: AuthModalProps) {
   const router = useRouter();
+  const supabase = createClient();
   
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -42,15 +36,12 @@ export function AuthModal({ isOpen, onClose, defaultTenantSlug }: AuthModalProps
       if (authError) throw authError;
       if (!data.user) throw new Error('No se pudo obtener el usuario');
 
-      // 2. Hack MVP: Guardar token en localStorage para el API Client (axios)
-      // En una app real usaríamos cookies httpOnly gestionadas por middleware,
-      // pero nuestro backend Spring Boot espera Bearer token.
-      if (data.session) {
-         localStorage.setItem('sb-access-token', data.session.access_token);
-      }
+      // 2. Cookie Handling
+      // @supabase/ssr ya establece las cookies automáticamente en el navegador.
+      // No necesitamos localStorage, pero si el API Client antiguo lo usa,
+      // la migración de api.ts se encargará de leer del cliente en lugar de aquí.
 
       // 3. Resolución de Tenant (Post-Login Logic)
-      // Consultamos las membresías del usuario
       const { data: memberships, error: memError } = await supabase
         .from('tenant_memberships')
         .select(`
@@ -68,28 +59,22 @@ export function AuthModal({ isOpen, onClose, defaultTenantSlug }: AuthModalProps
 
       // 4. Lógica de Redirección
       if (!memberships || memberships.length === 0) {
-         // Usuario sin tenant -> Perfil o Error
          alert("No tienes membresías activas. Contacta soporte.");
          return;
       }
 
-      // Si veníamos de un tenant específico, intentamos ir ahí si tenemos permiso
       if (defaultTenantSlug) {
          const hasAccess = memberships.some((m: any) => m.tenant.slug === defaultTenantSlug);
          if (hasAccess) {
-             // Ya estamos en la página del tenant, recargamos para actualizar UI
              window.location.reload(); 
              return;
          }
       }
 
-      // Si tiene solo 1 membresía, ir directo a ese tenant
       if (memberships.length === 1) {
          const targetTenant = (memberships[0] as any).tenant.slug;
-         // Redirigir a la landing del tenant (como pide el prompt UX)
          router.push(`/t/${targetTenant}`);
       } else {
-         // TODO: Si tiene varios, mostrar selector. Por ahora, ir al primero.
          const targetTenant = (memberships[0] as any).tenant.slug;
          router.push(`/t/${targetTenant}`);
       }

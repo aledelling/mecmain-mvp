@@ -1,0 +1,5 @@
+{
+  "name": "MecMain MVP",
+  "description": "Plataforma SaaS Multitenant para talleres de motocicletas con gestión de órdenes, clientes e inventario.",
+  "requestFramePermissions": []
+}

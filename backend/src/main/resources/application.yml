@@ -1,0 +1,40 @@
+server:
+  port: 8080
+  servlet:
+    context-path: /api
+
+spring:
+  application:
+    name: mecmain-api
+  
+  datasource:
+    # Usar variables de entorno para prod. Aquí valores por defecto para dev.
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/postgres}
+    username: ${DB_USER:postgres}
+    password: ${DB_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+  
+  jpa:
+    hibernate:
+      ddl-auto: validate # Nunca usar update en producción
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # URL de Supabase para obtener las claves públicas y validar JWT
+          jwk-set-uri: ${SUPABASE_URL}/auth/v1/jwks
+          issuer-uri: ${SUPABASE_URL}/auth/v1
+
+logging:
+  level:
+    com.mecmain: DEBUG
+    org.springframework.security: INFO
+
+mecmain:
+  cors:
+    allowed-origins: "http://localhost:3000,https://*.vercel.app"

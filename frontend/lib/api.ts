@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+// import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'; 
 
 // URL del backend (Spring Boot)
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api';

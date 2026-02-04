@@ -1,18 +1,15 @@
--- Aseguramos que RLS esté activo en todas las tablas nuevas
-ALTER TABLE tenants ENABLE ROW LEVEL SECURITY;
-ALTER TABLE tenant_memberships ENABLE ROW LEVEL SECURITY;
-ALTER TABLE customers ENABLE ROW LEVEL SECURITY;
-ALTER TABLE motorcycles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE inventory_items ENABLE ROW LEVEL SECURITY;
-ALTER TABLE work_orders ENABLE ROW LEVEL SECURITY;
-ALTER TABLE work_order_lines ENABLE ROW LEVEL SECURITY;
-ALTER TABLE invoices ENABLE ROW LEVEL SECURITY;
+-- Habilitar RLS en nuevas tablas
+ALTER TABLE store_categories ENABLE ROW LEVEL SECURITY;
+ALTER TABLE store_products ENABLE ROW LEVEL SECURITY;
+ALTER TABLE store_carts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE store_cart_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE store_orders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE store_order_items ENABLE ROW LEVEL SECURITY;
 
--- Función helper para validar acceso (si no existe, la creamos)
+-- Función helper
 CREATE OR REPLACE FUNCTION public.has_tenant_access(requested_tenant_id UUID)
 RETURNS BOOLEAN AS $$
 BEGIN
-  -- Permite si el usuario actual tiene una membresía en el tenant solicitado
   RETURN EXISTS (
     SELECT 1 FROM tenant_memberships
     WHERE user_id = auth.uid()
@@ -21,51 +18,41 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- --- POLÍTICAS GENERALES ---
+-- 1. ADMINISTROS (Membresía requerida)
+-- Pueden ver/editar todo en su tenant
+CREATE POLICY "Admins manage store categories" ON store_categories
+    ALL USING (has_tenant_access(tenant_id));
 
--- Tenants: Lectura pública (para login/resolución), escritura restringida
-DROP POLICY IF EXISTS "Public read tenants" ON tenants;
-CREATE POLICY "Public read tenants" ON tenants FOR SELECT USING (true);
+CREATE POLICY "Admins manage store products" ON store_products
+    ALL USING (has_tenant_access(tenant_id));
+    
+CREATE POLICY "Admins view all orders" ON store_orders
+    FOR SELECT USING (has_tenant_access(tenant_id));
+    
+CREATE POLICY "Admins view all order items" ON store_order_items
+    FOR SELECT USING (has_tenant_access(tenant_id));
 
--- Memberships: Ver propias membresías
-DROP POLICY IF EXISTS "User can see own memberships" ON tenant_memberships;
-CREATE POLICY "User can see own memberships" ON tenant_memberships
+-- 2. CLIENTES (Dueños del dato)
+-- Carritos: solo el dueño puede ver/editar su carrito activo
+CREATE POLICY "Users manage own carts" ON store_carts
+    ALL USING (auth.uid() = user_id);
+
+CREATE POLICY "Users manage own cart items" ON store_cart_items
+    ALL USING (
+        EXISTS (SELECT 1 FROM store_carts WHERE id = cart_id AND user_id = auth.uid())
+    );
+
+-- Órdenes: solo el dueño puede ver sus órdenes (y admin arriba)
+CREATE POLICY "Users view own orders" ON store_orders
     FOR SELECT USING (auth.uid() = user_id);
 
--- --- POLÍTICAS DE NEGOCIO (Patrón Repetible) ---
+CREATE POLICY "Users view own order items" ON store_order_items
+    FOR SELECT USING (
+        EXISTS (SELECT 1 FROM store_orders WHERE id = order_id AND user_id = auth.uid())
+    );
 
--- Customers
-DROP POLICY IF EXISTS "Tenant isolation for customers" ON customers;
-CREATE POLICY "Tenant isolation for customers" ON customers
-    ALL USING (has_tenant_access(tenant_id))
-    WITH CHECK (has_tenant_access(tenant_id));
-
--- Motorcycles
-DROP POLICY IF EXISTS "Tenant isolation for motorcycles" ON motorcycles;
-CREATE POLICY "Tenant isolation for motorcycles" ON motorcycles
-    ALL USING (has_tenant_access(tenant_id))
-    WITH CHECK (has_tenant_access(tenant_id));
-
--- Inventory
-DROP POLICY IF EXISTS "Tenant isolation for inventory" ON inventory_items;
-CREATE POLICY "Tenant isolation for inventory" ON inventory_items
-    ALL USING (has_tenant_access(tenant_id))
-    WITH CHECK (has_tenant_access(tenant_id));
-
--- Work Orders
-DROP POLICY IF EXISTS "Tenant isolation for work_orders" ON work_orders;
-CREATE POLICY "Tenant isolation for work_orders" ON work_orders
-    ALL USING (has_tenant_access(tenant_id))
-    WITH CHECK (has_tenant_access(tenant_id));
-
--- Work Order Lines
-DROP POLICY IF EXISTS "Tenant isolation for work_order_lines" ON work_order_lines;
-CREATE POLICY "Tenant isolation for work_order_lines" ON work_order_lines
-    ALL USING (has_tenant_access(tenant_id))
-    WITH CHECK (has_tenant_access(tenant_id));
-
--- Invoices
-DROP POLICY IF EXISTS "Tenant isolation for invoices" ON invoices;
-CREATE POLICY "Tenant isolation for invoices" ON invoices
-    ALL USING (has_tenant_access(tenant_id))
-    WITH CHECK (has_tenant_access(tenant_id));
+-- 3. PÚBLICO
+-- Productos: Aunque la API backend hace de gatekeeper, permitimos SELECT a autenticados 
+-- para facilitar consultas complejas si fuera necesario, pero solo si están publicados.
+CREATE POLICY "Auth users view published products" ON store_products
+    FOR SELECT USING (is_published = true);

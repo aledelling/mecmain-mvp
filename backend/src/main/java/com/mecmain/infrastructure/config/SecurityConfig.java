@@ -22,16 +22,15 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
-            .csrf(AbstractHttpConfigurer::disable) // Desactivar CSRF para APIs REST stateless
+            .csrf(AbstractHttpConfigurer::disable)
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/api/health", "/api/tenants/resolve", "/swagger-ui/**", "/v3/api-docs/**").permitAll()
+                .requestMatchers("/api/health", "/api/tenants/resolve").permitAll()
+                .requestMatchers("/api/public/**").permitAll() // Permitir catálogo público
+                .requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll()
                 .anyRequest().authenticated()
             )
-            .oauth2ResourceServer(oauth2 -> oauth2.jwt(jwt -> {})) // Valida JWT contra Supabase
-            // Agregar nuestro TenantFilter ANTES de la autenticación de Spring es una opción, 
-            // pero mejor DESPUÉS para asegurar que tenemos usuario si quisiéramos validar membresía.
-            // Para este MVP, lo ponemos antes para asegurar contexto de tenant.
+            .oauth2ResourceServer(oauth2 -> oauth2.jwt(jwt -> {}))
             .addFilterBefore(tenantFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
@@ -40,7 +39,7 @@ public class SecurityConfig {
     @Bean
     public UrlBasedCorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
-        config.addAllowedOriginPattern("*"); // Simplificado para DEV
+        config.addAllowedOriginPattern("*");
         config.addAllowedHeader("*");
         config.addAllowedMethod("*");
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();

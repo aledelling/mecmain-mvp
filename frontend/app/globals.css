@@ -1,0 +1,51 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --foreground-rgb: 255, 255, 255;
+  --background-start-rgb: 11, 14, 17; /* #0B0E11 */
+  --background-end-rgb: 21, 26, 33;   /* #151A21 */
+}
+
+body {
+  color: rgb(var(--foreground-rgb));
+  background: linear-gradient(
+      to bottom,
+      rgb(var(--background-start-rgb)),
+      rgb(var(--background-end-rgb))
+    );
+  min-height: 100vh;
+}
+
+/* 
+  Clase utilitaria para el efecto "Glassmorphism" (Vidrio)
+  Usa fondo blanco semi-transparente + desenfoque (backdrop-blur)
+*/
+.glass-panel {
+  @apply bg-white/5 backdrop-blur-md border border-white/10 shadow-xl;
+}
+
+.glass-card {
+  @apply bg-surface/60 backdrop-blur-sm border border-white/5 hover:border-primary/30 transition-all duration-300;
+}
+
+/* Scrollbar personalizado oscuro */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #0B0E11; 
+}
+::-webkit-scrollbar-thumb {
+  background: #334155; 
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #00E599; 
+}
+
+/* Utilidades de texto */
+.text-neon {
+  @apply text-primary drop-shadow-[0_0_8px_rgba(0,229,153,0.5)];
+}

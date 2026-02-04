@@ -26,43 +26,48 @@ public class TenantFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
         
-        // Rutas públicas que no requieren tenant (Health, Docs, etc)
         String path = request.getRequestURI();
-        if (path.startsWith("/api/health") || path.equals("/api/tenants/resolve")) {
+        // Skip endpoints públicos
+        if (path.startsWith("/api/health") || path.equals("/api/tenants/resolve") || path.startsWith("/swagger-ui") || path.startsWith("/v3/api-docs")) {
             filterChain.doFilter(request, response);
             return;
         }
 
-        // Estrategia 1: Header (Para DEV o llamadas directas)
+        // Resolución de Tenant
+        // Prioridad 1: Header (Estándar para API calls desde Frontend)
         String tenantSlug = request.getHeader("X-Tenant-Slug");
-
-        // Estrategia 2: Subdominio (PROD) - Simplificado para MVP
-        // En un entorno real, parsearíamos request.getServerName()
+        
+        // Prioridad 2: Fallback desde Subdominio (para llamadas directas sin proxy en prod)
+        if (tenantSlug == null) {
+             // Simplificado: asumir que el host viene en header Host
+             String host = request.getHeader("Host");
+             if (host != null && !host.contains("localhost") && !host.contains("vercel.app")) {
+                 tenantSlug = host.split("\\.")[0];
+             }
+        }
 
         if (tenantSlug != null && !tenantSlug.isEmpty()) {
             Optional<TenantEntity> tenantOpt = tenantRepository.findBySlug(tenantSlug);
             
             if (tenantOpt.isPresent()) {
                 TenantContext.setTenantId(tenantOpt.get().getId());
-                log.debug("Tenant resolved: {} -> {}", tenantSlug, tenantOpt.get().getId());
+                // log.debug("Tenant context set to: {}", tenantSlug);
             } else {
-                // Si mandan un slug que no existe, es un 404 lógico o 400
-                response.sendError(HttpServletResponse.SC_BAD_REQUEST, "Invalid Tenant Slug");
+                response.sendError(HttpServletResponse.SC_BAD_REQUEST, "Invalid Tenant Slug: " + tenantSlug);
                 return;
             }
         } else {
-            // Nota para Junior: En producción, si la ruta es protegida y no hay tenant, denegamos.
-            // Para rutas globales (landing admin), se permitiría null.
-            // Aquí asumimos estricto tenant context para /api/**
-            log.warn("No tenant slug provided in request to {}", path);
-             // response.sendError(HttpServletResponse.SC_BAD_REQUEST, "Tenant ID missing");
-             // return;
+            // Enrutamiento estricto: Si es una llamada a la API protegida, DEBE tener tenant.
+            // Para este MVP, lanzamos error si no se encuentra.
+            log.warn("Tenant slug missing in request: {}", path);
+            response.sendError(HttpServletResponse.SC_BAD_REQUEST, "Missing X-Tenant-Slug header or subdomain");
+            return;
         }
 
         try {
             filterChain.doFilter(request, response);
         } finally {
-            // MUY IMPORTANTE: Limpiar el contexto siempre
+            // CRÍTICO: Limpiar ThreadLocal para evitar contaminación de contextos en pooling de hilos
             TenantContext.clear();
         }
     }
